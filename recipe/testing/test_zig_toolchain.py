@@ -867,13 +867,14 @@ def test_print_search_dirs() -> None:
 def test_mingw_prebuilt_import_libs() -> None:
     """Verify pre-generated MinGW import .a files exist for core Windows libs.
 
-    The -print-search-dirs response points flexlink to lib-common/.  These .a
-    files must exist on disk at install time so flexlink can resolve -lws2_32,
-    -lkernel32, etc. as library links rather than literal filenames.
+    The -print-search-dirs response points flexlink to the target's MinGW
+    library directory. These .a files must exist on disk at install time so
+    flexlink can resolve -lws2_32, -lkernel32, etc. as library links rather
+    than literal filenames.
 
-    .def files  -> llvm-dlltool generates the .a directly.
+    .def files  -> dlltool generates the .a directly.
     .def.in files (ws2_32, kernel32, ...) -> preprocessed with zig cc -E -P
-                  to expand F_X64/F_I386 macros, then llvm-dlltool.
+                  to expand F_X64/F_I386 macros, then dlltool.
     uuid        -> compiled from libsrc/uuid.c (no DLL import lib needed).
     """
     print("--- Pre-generated MinGW import libs ---")
@@ -882,15 +883,22 @@ def test_mingw_prebuilt_import_libs() -> None:
         SKIP("mingw prebuilt import libs", "Windows target only")
         return
 
-    if _build_is_win:
-        lib_common = _prefix / "Library" / "lib" / "zig" / "libc" / "mingw" / "lib-common"
+    mingw_root = (
+        _prefix / "Library" / "lib" / "zig" / "libc" / "mingw"
+        if _build_is_win
+        else _prefix / "lib" / "zig" / "libc" / "mingw"
+    )
+    if _arch == "aarch64":
+        import_lib_dir = mingw_root / "libarm64"
+    elif _arch in {"x86", "i386", "i686"}:
+        import_lib_dir = mingw_root / "lib32"
     else:
-        lib_common = _prefix / "lib" / "zig" / "libc" / "mingw" / "lib-common"
+        import_lib_dir = mingw_root / "lib-common"
 
-    if not lib_common.is_dir():
-        FAIL("lib-common directory exists", str(lib_common))
+    if not import_lib_dir.is_dir():
+        FAIL("target MinGW import-lib directory exists", str(import_lib_dir))
         return
-    PASS("lib-common directory exists")
+    PASS("target MinGW import-lib directory exists", str(import_lib_dir))
 
     # Core Windows system libs -- from .def.in templates (ws2_32, kernel32, ole32,
     # advapi32, user32) or plain .def (shlwapi, version, synchronization) or
@@ -907,16 +915,15 @@ def test_mingw_prebuilt_import_libs() -> None:
         "libversion.a",      # plain .def -- version info
     ]
     for fname in required:
-        lib = lib_common / fname
+        lib = import_lib_dir / fname
         if lib.exists() and lib.stat().st_size > 0:
             PASS(f"pre-generated {fname}")
         else:
             FAIL(f"pre-generated {fname}",
                  f"{lib} {'missing' if not lib.exists() else 'is empty (0 bytes)'}")
 
-    # Per-arch dirs (libarm64/, lib32/) are asserted in test_mingw_crt.py, on
-    # the zig_impl_* lane that generates them. A cross package only inherits
-    # the published zig_impl's tree and cannot fix a gap in it.
+    # The zig_impl_* lane owns these files. A cross package only inherits the
+    # published implementation tree and cannot repair a gap in it.
 
 
 # ===================================================================

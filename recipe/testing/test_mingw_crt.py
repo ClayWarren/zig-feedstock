@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Verify the mingw32 CRT bootstrap for ALL staged Windows targets.
+"""Verify the mingw32 CRT bootstrap for staged Windows targets.
 
 recipe/building/_mingw.sh cache-warms x86_64-windows-gnu, aarch64-windows-gnu
 and x86-windows-gnu, staging the real archives into lib-common/, libarm64/ and
-lib32/ respectively.  A failed warm iteration only WARNs and skips its stage,
-so an entire architecture can go missing from the package silently; this test
-checks all three.
+lib32/ respectively. The official Windows ARM64 seed stages only its native
+target in libarm64/. A failed warm iteration must not leave a package silently
+missing an architecture; this test checks every target each build mode owns.
 
 Not pytest: uses the custom PASS/FAIL/WARN/SKIP harness (see _test_utils.py,
 also used by test_zig_toolchain.py and test_flag_translation_parity.py) so
@@ -36,9 +36,9 @@ if hasattr(sys.stderr, "reconfigure"):
 # on native Windows runners the OS reports itself directly.
 _build_is_win = sys.platform == "win32" or os.environ.get("MSYSTEM") is not None
 
-# Minimal C source for the cross-target link probes: a setjmp/longjmp
-# round-trip (__setjmp3 path) plus a floating-point op (_fpreset-adjacent
-# codegen) -- the symbol classes that have historically broken the
+# Minimal C source for the target link probes: a setjmp/longjmp round-trip
+# (__setjmp3 path) plus a floating-point operation -- symbol classes that
+# have historically broken the
 # non-x86_64 mingw CRT bootstrap. Link-only; never executed (arm64/32-bit
 # outputs cannot run on this runner).
 _LINK_PROBE_C = """\
@@ -82,8 +82,26 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
 }
 """
 
+_NATIVE_PTHREAD_C = """\
+#include <pthread.h>
+#include <stdio.h>
+
+int main(void) {
+    char buffer[8];
+    (void)snprintf(buffer, sizeof(buffer), "%d", 0);
+    pthread_t thread = pthread_self();
+    (void)thread;
+    return 0;
+}
+"""
+
 # Shared by the console and GUI probes so the two cannot drift apart.
-_PROBE_TARGETS = ["x86_64-windows-gnu", "aarch64-windows-gnu", "x86-windows-gnu"]
+_NATIVE_ARM64_ONLY = "--native-arm64" in sys.argv[1:]
+_PROBE_TARGETS = (
+    ["aarch64-windows-gnu"]
+    if _NATIVE_ARM64_ONLY
+    else ["x86_64-windows-gnu", "aarch64-windows-gnu", "x86-windows-gnu"]
+)
 _PROBE_TIMEOUT_S = 600
 
 
@@ -246,14 +264,10 @@ def test_prebuilt_implibs(staged: list[tuple[str, Path]]) -> None:
                 PASS(name, f"{p.stat().st_size} bytes")
 
 
-def test_libpthread_import_lib(lib_common: Path) -> None:
-    """2. libpthread.a preserved as small import lib (NOT overwritten by alias).
-
-    Generated from mingw-defs into lib-common only -- the cache-warm loop
-    does not stage it into libarm64/ or lib32/, so scoped to lib-common.
-    """
-    print("--- libpthread.a import lib (lib-common only) ---")
-    pthread_a = lib_common / "libpthread.a"
+def test_libpthread_import_lib(import_lib_dir: Path) -> None:
+    """2. libpthread.a remains a small import lib, not a runtime alias."""
+    print("--- libpthread.a import lib ---")
+    pthread_a = import_lib_dir / "libpthread.a"
     if not pthread_a.is_file():
         FAIL("libpthread.a exists", f"missing: {pthread_a}")
         return
@@ -269,14 +283,12 @@ def test_libpthread_import_lib(lib_common: Path) -> None:
 def test_libmingw32_members(staged: list[tuple[str, Path]]) -> None:
     """3. Key source members present in libmingw32.lib via `zig ar t`.
 
-    Runs the member listing for all three staged dirs -- an unreadable
-    archive or a listing with zero members is arch-independent and always
-    a FAIL. The specific ucrt_*/thread/mutex member names are asserted
-    (FAIL on absence) only for lib-common (x86_64), where they were
-    verified; for libarm64/lib32 those names are unconfirmed, so any
-    mismatch there only WARNs and prints the actual matching member lines
-    found, so they can be confirmed from the next CI log and hardened to
-    FAIL later.
+    Runs the member listing for every staged dir -- an unreadable archive or a
+    listing with zero members is always a FAIL. The specific ucrt_*/thread/
+    mutex members remain asserted for x86_64. The official native seed uses
+    the already enumerated crt_handler object; its installer also checks an
+    explicit _fpreset link. Member names for non-native ARM64 and i386 remain
+    diagnostic, preserving the existing source-build policy.
     """
     print("--- libmingw32.lib source member check (zig ar t) ---")
     zig_exe, _triplet = _find_zig_exe()
@@ -312,6 +324,15 @@ def test_libmingw32_members(staged: list[tuple[str, Path]]) -> None:
                     PASS(f"libmingw32.lib member {member} ({target})")
                 else:
                     FAIL(f"libmingw32.lib member {member} ({target})", "not found in ar t output")
+        elif target == "aarch64-windows-gnu" and _NATIVE_ARM64_ONLY:
+            carrier = "crt_handler"
+            if any(carrier in line for line in member_lines):
+                PASS(f"libmingw32.lib member {carrier} ({target})")
+            else:
+                FAIL(
+                    f"libmingw32.lib member {carrier} ({target})",
+                    "ARM64 fpreset carrier not found in ar t output",
+                )
         else:
             matches = [
                 line for line in member_lines
@@ -324,7 +345,82 @@ def test_libmingw32_members(staged: list[tuple[str, Path]]) -> None:
             )
 
 
-def test_cross_target_link_probes() -> None:
+def test_native_fresh_cache_pthread() -> None:
+    """Native seed: ordinary fresh-cache pthread compile/link/run, no injection.
+
+    The official compiler embeds its MinGW source manifest. This catches a
+    seed recipe that merely repairs a harvested archive while leaving normal
+    `zig cc -pthread` unable to materialize its own ARM64 runtime.
+    """
+    if not _NATIVE_ARM64_ONLY:
+        return
+
+    print("--- Native fresh-cache pthread compile/link/run ---")
+    if not _build_is_win:
+        FAIL("native pthread gate", "--native-arm64 requires a native Windows runner")
+        return
+
+    zig_exe, _triplet = _find_zig_exe()
+    if zig_exe is None:
+        FAIL("native pthread gate", "no aarch64-w64-mingw32-zig binary found on PATH")
+        return
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        source = work / "pthread_probe.c"
+        output = work / "pthread_probe.exe"
+        source.write_text(_NATIVE_PTHREAD_C, encoding="utf-8")
+
+        cache_vars = {
+            "ZIG_GLOBAL_CACHE_DIR": str(work / "fresh-global-cache"),
+            "ZIG_LOCAL_CACHE_DIR": str(work / "fresh-local-cache"),
+        }
+        previous_cache = {name: os.environ.get(name) for name in cache_vars}
+        os.environ.update(cache_vars)
+        try:
+            result = _run(
+                [
+                    zig_exe,
+                    "cc",
+                    "-target",
+                    "aarch64-windows-gnu",
+                    "-pthread",
+                    str(source),
+                    "-o",
+                    str(output),
+                ],
+                timeout=_PROBE_TIMEOUT_S,
+                cwd=work,
+            )
+        finally:
+            for name, previous in previous_cache.items():
+                if previous is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = previous
+
+        if result.returncode == -1 and result.stderr == "TIMEOUT":
+            FAIL("native pthread compile/link", f"TIMEOUT ({_PROBE_TIMEOUT_S}s)")
+            return
+        if result.returncode != 0 or not output.is_file():
+            FAIL(
+                "native pthread compile/link",
+                f"rc={result.returncode} stderr={result.stderr[:800]!r}",
+            )
+            return
+        PASS("native pthread compile/link without injected objects")
+
+        executed = _run([str(output)], timeout=60, cwd=work)
+        if executed.returncode == 0:
+            PASS("native pthread executable run")
+        else:
+            FAIL(
+                "native pthread executable run",
+                f"rc={executed.returncode} stderr={executed.stderr[:400]!r}",
+            )
+
+
+def test_cross_target_link_probes(staged: list[tuple[str, Path]]) -> None:
     """1. Compile+link a real binary against each staged CRT quartet.
 
     Exercises setjmp/longjmp (__setjmp3 path) and a floating-point op
@@ -338,6 +434,7 @@ def test_cross_target_link_probes() -> None:
         return
 
     probe_timeout_s = _PROBE_TIMEOUT_S
+    staged_by_target = dict(staged)
     targets = _PROBE_TARGETS
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / "probe.c"
@@ -349,7 +446,16 @@ def test_cross_target_link_probes() -> None:
             # A surviving zig keeps burning CPU and pushes the NEXT probe over its budget.
             t0 = time.monotonic()
             result = _run(
-                [zig_exe, "cc", "-target", target, "-o", str(out), str(src)],
+                [
+                    zig_exe,
+                    "cc",
+                    "-target",
+                    target,
+                    str(src),
+                    *([f"-L{staged_by_target[target]}", "-lmingw32"] if _NATIVE_ARM64_ONLY else []),
+                    "-o",
+                    str(out),
+                ],
                 timeout=probe_timeout_s,
             )
             elapsed = time.monotonic() - t0
@@ -358,10 +464,13 @@ def test_cross_target_link_probes() -> None:
             elif result.returncode == 0 and out.is_file():
                 PASS(f"{name} [{elapsed:.1f}s]")
             else:
-                FAIL(f"{name} [{elapsed:.1f}s]", f"rc={result.returncode} stderr={result.stderr[:400]!r}")
+                FAIL(
+                    f"{name} [{elapsed:.1f}s]",
+                    f"rc={result.returncode} stderr={result.stderr[:400]!r}",
+                )
 
 
-def test_gui_subsystem_link_probes() -> None:
+def test_gui_subsystem_link_probes(staged: list[tuple[str, Path]]) -> None:
     """Diagnostic: does the GUI-subsystem startup path link?
 
     We stage crt2win.o (built from mingw crtexewin.c with -D_WINDOWS) but
@@ -377,6 +486,7 @@ def test_gui_subsystem_link_probes() -> None:
         SKIP("gui link probes", "no <arch>-w64-mingw32-zig binary found on PATH")
         return
 
+    staged_by_target = dict(staged)
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / "gui_probe.c"
         src.write_text(_GUI_PROBE_C)
@@ -385,8 +495,17 @@ def test_gui_subsystem_link_probes() -> None:
             out = Path(td) / f"gui_probe_{target}.exe"
             t0 = time.monotonic()
             result = _run(
-                [zig_exe, "cc", "-target", target, "-mwindows",
-                 "-o", str(out), str(src)],
+                [
+                    zig_exe,
+                    "cc",
+                    "-target",
+                    target,
+                    str(src),
+                    *([f"-L{staged_by_target[target]}", "-lmingw32"] if _NATIVE_ARM64_ONLY else []),
+                    "-mwindows",
+                    "-o",
+                    str(out),
+                ],
                 timeout=_PROBE_TIMEOUT_S,
             )
             elapsed = time.monotonic() - t0
@@ -410,20 +529,26 @@ def main() -> int:
     else:
         mingw_dir = prefix / "lib" / "zig" / "libc" / "mingw"
 
-    # Staging dir per warm target, matching _mingw.sh's cache-warm loop.
-    staged = [
-        ("x86_64-windows-gnu", mingw_dir / "lib-common"),
-        ("aarch64-windows-gnu", mingw_dir / "libarm64"),
-        ("x86-windows-gnu", mingw_dir / "lib32"),
-    ]
-    lib_common = staged[0][1]
+    # Source builds own all three targets. The official native seed owns only
+    # ARM64 and must not claim that its upstream binary produced other arches.
+    staged = (
+        [("aarch64-windows-gnu", mingw_dir / "libarm64")]
+        if _NATIVE_ARM64_ONLY
+        else [
+            ("x86_64-windows-gnu", mingw_dir / "lib-common"),
+            ("aarch64-windows-gnu", mingw_dir / "libarm64"),
+            ("x86-windows-gnu", mingw_dir / "lib32"),
+        ]
+    )
+    pthread_dir = staged[0][1]
 
     test_staged_archives(staged)
     test_prebuilt_implibs(staged)
-    test_libpthread_import_lib(lib_common)
+    test_libpthread_import_lib(pthread_dir)
     test_libmingw32_members(staged)
-    test_cross_target_link_probes()
-    test_gui_subsystem_link_probes()
+    test_native_fresh_cache_pthread()
+    test_cross_target_link_probes(staged)
+    test_gui_subsystem_link_probes(staged)
     test_bundled_setjmp_h_undecorated(mingw_dir)
 
     print()
@@ -447,10 +572,8 @@ def main() -> int:
             print(f"  - {name}")
 
     if n_fail == 0:
-        print(
-            "\nmingw CRT bootstrap OK: x86_64 (lib-common), "
-            "aarch64 (libarm64), x86 (lib32)"
-        )
+        targets = ", ".join(target for target, _ in staged)
+        print(f"\nmingw CRT bootstrap OK: {targets}")
 
     return 1 if n_fail > 0 else 0
 
