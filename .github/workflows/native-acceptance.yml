@@ -3,6 +3,12 @@ on:
   push:
     branches: [codex/windows-arm64-native-ci]
   workflow_dispatch:
+    inputs:
+      lane:
+        type: choice
+        default: zig
+        options: [zig, protobuf]
+        description: Native acceptance lane
 
 permissions:
   contents: read
@@ -15,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [zig, protobuf]
+        lane: ["${{ inputs.lane || 'zig' }}"]
     env:
       PIXI_CACHE_DIR: C:\arm64-acceptance-cache
       UPLOAD_PACKAGES: 'False'

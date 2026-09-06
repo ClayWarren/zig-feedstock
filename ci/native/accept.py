@@ -55,7 +55,8 @@ def main():
             "rattler-build", "build", "--recipe", "recipe/recipe.yaml",
             "--target-platform", "win-arm64", "--build-platform", "win-arm64",
             "-m", ".ci_support/win_arm64_cross_target_platform_win-arm64.yaml",
-            "--channel", "conda-forge", "--no-config", "--output-dir", "C:/bld",
+            # The rendered variant already sets channel_sources=conda-forge.
+            "--no-config", "--output-dir", "C:/bld",
         ], check=True)
         packages = list(Path("C:/bld/win-arm64").glob("*.conda"))
         assert len(packages) == 4, packages

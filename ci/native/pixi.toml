@@ -3,9 +3,6 @@ name = "native-arm64-acceptance"
 channels = ["conda-forge"]
 platforms = ["win-arm64"]
 
-[system-requirements]
-archspec = "aarch64"
-
 [feature.zig.dependencies]
 python = "3.14.*"
 rattler-build = "==0.75.0"
