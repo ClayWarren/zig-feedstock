@@ -1,0 +1,19 @@
+[workspace]
+name = "native-arm64-acceptance"
+channels = ["conda-forge"]
+platforms = ["win-arm64"]
+
+[system-requirements]
+archspec = "aarch64"
+
+[feature.zig.dependencies]
+python = "3.14.*"
+rattler-build = "==0.75.0"
+
+[feature.protobuf.dependencies]
+python = "3.14.*"
+protobuf = { version = "==7.35.1", build = "py314hf717eb2_3" }
+
+[environments]
+zig = { features = ["zig"], no-default-feature = true }
+protobuf = { features = ["protobuf"], no-default-feature = true }

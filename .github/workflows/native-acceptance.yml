@@ -1,0 +1,60 @@
+name: Native Windows ARM64 acceptance (fork only)
+on:
+  push:
+    branches: [codex/windows-arm64-native-ci]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    if: github.repository == 'ClayWarren/zig-feedstock'
+    runs-on: windows-11-arm
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [zig, protobuf]
+    env:
+      PIXI_CACHE_DIR: C:\arm64-acceptance-cache
+      UPLOAD_PACKAGES: 'False'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Verify native runner
+        shell: pwsh
+        run: |
+          if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') {
+            throw 'A native Windows ARM64 runner is required'
+          }
+          git rev-parse HEAD
+          git log -1 --format='%H %s' -- recipe
+      - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0
+        with:
+          pixi-version: v0.79.0
+          run-install: false
+          cache: false
+          post-cleanup: false
+      - name: Fresh channel install and native acceptance
+        shell: pwsh
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          pixi install --manifest-path ci/native/pixi.toml -e $env:LANE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item ci/native/pixi.lock evidence/pixi.lock
+          pixi run --manifest-path ci/native/pixi.toml -e $env:LANE python ci/native/accept.py $env:LANE 2>&1 | Tee-Object evidence/acceptance.log
+          exit $LASTEXITCODE
+      - name: Retain logs, exact solve, and built packages
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-${{ matrix.lane }}-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            evidence/
+            C:/bld/win-arm64/*.conda
+            C:/bld/noarch/*.conda
