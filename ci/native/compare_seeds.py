@@ -60,13 +60,16 @@ def smoke(label, zig, library):
         env = os.environ.copy()
         env['ZIG_GLOBAL_CACHE_DIR'] = str(work / 'global')
         env['ZIG_LOCAL_CACHE_DIR'] = str(work / 'local')
+        # Zig 0.16's cc argument parser rejects --zig-lib-dir; the compiler
+        # supports the equivalent environment override for this subcommand.
+        env['ZIG_LIB_DIR'] = str(library)
         output = work / ('smoke.obj' if step == 'object' else 'smoke.exe')
-        command = [zig, 'cc', '--zig-lib-dir', library, '-target', 'aarch64-windows-gnu']
+        command = [zig, 'cc', '-target', 'aarch64-windows-gnu']
         if step == 'object':
             command.append('-c')
         command += [source, '-o', output]
         lane[step] = invoke(f'{label}-{step}', command, env=env)
-        lane[step]['cache'] = {key: env[key] for key in ('ZIG_GLOBAL_CACHE_DIR', 'ZIG_LOCAL_CACHE_DIR')}
+        lane[step]['environment'] = {key: env[key] for key in ('ZIG_GLOBAL_CACHE_DIR', 'ZIG_LOCAL_CACHE_DIR', 'ZIG_LIB_DIR')}
         if lane[step]['returncode'] == 0:
             if not output.is_file():
                 raise RuntimeError(f'compiler reported success without {output}')
