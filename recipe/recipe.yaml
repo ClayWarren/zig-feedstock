@@ -5,7 +5,7 @@ context:
   name: zig
   version: "0.17.0"
   abi_version: ${{ (version | split("."))[:2] | join(".") }}
-  snapshot: "1980+e78ea8f2c"
+  snapshot: "2033+af24fd11a"
   snapshot_ref: "1970"
   build_ref: "0"
   zig_impl_pin: '[version="${{ abi_version }}.*", build="*_${{ snapshot_ref }}_*", build_number=">=${{ build_ref }}"]'
@@ -14,6 +14,8 @@ context:
   llvm_version: ${{ llvm_src_version | split(".") | first }}
 
   bootstrap_via_upstream: false
+  # Fork-only native compiler acceptance; no source-built LLVM dependencies.
+  native_win_arm64_seed: ${{ build_platform == "win-arm64" and target_platform == "win-arm64" and cross_target_platform_ == "win-arm64" }}
 
   # Manual global override for local dev only; SKIP_LANGREF export derives from it.
   # Emulated cross-linux lanes are skipped automatically in build.sh.
@@ -73,6 +75,7 @@ context:
       "x86_64-macos." ~ _c_v                 if build_platform == "osx-64"          else
       "aarch64-macos." ~ _c_v                if build_platform == "osx-arm64"       else
       "x86_64-windows-gnu"                   if build_platform == "win-64"          else
+      "aarch64-windows-gnu"                  if build_platform == "win-arm64"       else
       "native"
     }}
 
@@ -100,6 +103,7 @@ context:
       "x86_64-apple-darwin13.4.0"            if build_platform == "osx-64"          else
       "arm64-apple-darwin20.0.0"             if build_platform == "osx-arm64"       else
       "x86_64-w64-mingw32"                   if build_platform == "win-64"          else
+      "aarch64-w64-mingw32"                  if build_platform == "win-arm64"       else
       "unknown_build_triplet"
     }}
 
@@ -170,7 +174,7 @@ recipe:
 
 source:
   - url: https://ziglang.org/builds/zig-${{ version }}-dev.${{ snapshot }}.tar.xz
-    sha256: 865fc9bbd79d1c7ebf092e040dc5b6914da16cc972f52548c433a18aca752f00
+    sha256: 1825bc1a2d47f861ae793e9da24fcf938b1c3ab3bb517eb9af6d6c0ecce3b5b1
     patches:
       # All platforms: wire LLD MachO into zig cc pipeline + allow -fuse-ld=lld.
       # macho-lld-support must apply before prefer-shared-libcxx because the
@@ -279,6 +283,12 @@ source:
             sha256: bd0dbbb5e1ff2e58d179763756f30f299b9fb6c17d91fc469cc342ef23d6785d
             target_directory: zig-bootstrap
 
+  - if: native_win_arm64_seed
+    then:
+      - url: https://ziglang.org/builds/zig-aarch64-windows-${{ version }}-dev.${{ snapshot }}.zip
+        sha256: f63987d4f4e90e9b5aff9e38d4265696d9abd83de2e70d4bb9b4ac22d6febf2c
+        target_directory: zig-native-seed
+
 build:
   number: ${{ build_number }}
   # Fold the dev snapshot into the build string.
@@ -317,9 +327,10 @@ outputs:
               - "*/ld-linux-*.so.*"
               - "*/ld64.so.*"
       script:
-        file: build.sh
+        file: ${{ "install_native_seed.py" if native_win_arm64_seed else "build.sh" }}
         env:
           CONDA_TRIPLET: ${{ conda_triplet }}
+          NATIVE_SEED_VERSION: ${{ version ~ "-dev." ~ snapshot }}
           ZIG_TRIPLET: ${{ zig_triplet }}
 
           CONDA_ZIG_BUILD: ${{ build_triplet ~ "-zig" }}
@@ -338,48 +349,54 @@ outputs:
           - lib/zig/lldb/pretty_printers.py
     requirements:
       build:
-        # --- Common build deps (all cases) ---
-        - ${{ compiler('c') }}
-        - ${{ compiler('cxx') }}
-        - ${{ stdlib("c") }}
-        - ${{ m2 }}bash >=5.2
-        - ${{ m2 }}file
-        - cmake >=3.5
-        - llvm-tools ${{ llvm_version }}.*
-        - ninja
-        - perl 5.32.*
-        - python 3.12.*
-        - if: not unix
+        - if: native_win_arm64_seed
           then:
-            - ${{ m2 }}coreutils
-            - ${{ m2 }}findutils
-            - ${{ m2 }}gawk
-            - ${{ m2 }}which
-        - if: (build_platform != target_platform)
-          then:
-            - llvmdev ${{ llvm_version }}.*  # llvm-config
-            - if: linux
+            - python 3.14.*
+          else:
+            # --- Common build deps (all cases) ---
+            - ${{ compiler('c') }}
+            - ${{ compiler('cxx') }}
+            - ${{ stdlib("c") }}
+            - ${{ m2 }}bash >=5.2
+            - ${{ m2 }}file
+            - cmake >=3.5
+            - llvm-tools ${{ llvm_version }}.*
+            - ninja
+            - perl 5.32.*
+            - python 3.12.*
+            - if: not unix
               then:
-                - ${{ qemu_pkg }}
+                - ${{ m2 }}coreutils
+                - ${{ m2 }}findutils
+                - ${{ m2 }}gawk
+                - ${{ m2 }}which
+            - if: (build_platform != target_platform)
+              then:
+                - llvmdev ${{ llvm_version }}.*  # llvm-config
+                - if: linux
+                  then:
+                    - ${{ qemu_pkg }}
+                - if: osx
+                  then:
+                    - libxml2-devel
+
+            # Self-hosting: build zig with zig.
+            - if: not bootstrap_via_upstream
+              then:
+                - 'zig_impl_${{ build_platform }}${{ zig_impl_pin }}'
+      host:
+        - if: not native_win_arm64_seed
+          then:
+            - clangdev ${{ llvm_version }}.*
+            - libclang-cpp ${{ llvm_version }}.*
+            - llvm ${{ llvm_version }}.*
+            - libxml2-devel
+            - lld ${{ llvm_version }}.*
+            - zlib
+            - zstd
             - if: osx
               then:
-                - libxml2-devel
-
-        # Self-hosting: build zig with zig.
-        - if: not bootstrap_via_upstream
-          then:
-            - 'zig_impl_${{ build_platform }}${{ zig_impl_pin }}'
-      host:
-        - clangdev ${{ llvm_version }}.*
-        - libclang-cpp ${{ llvm_version }}.*
-        - llvm ${{ llvm_version }}.*
-        - libxml2-devel
-        - lld ${{ llvm_version }}.*
-        - zlib
-        - zstd
-        - if: osx
-          then:
-            - libcxx ${{ llvm_version }}.*
+                - libcxx ${{ llvm_version }}.*
       run:
         - if: ppc64le
           then:
@@ -399,6 +416,17 @@ outputs:
               - ucrt
               - vc14_runtime
     tests:
+      - if: native_win_arm64_seed
+        then:
+          script:
+            - python testing/test_native_seed_helpers.py
+          requirements:
+            build:
+              - python >=3.14
+          files:
+            recipe:
+              - install_native_seed.py
+              - testing/test_native_seed_helpers.py
       # Package contents verification - impl has triplet-prefixed binary
       - package_contents:
           strict: true
@@ -609,8 +637,12 @@ outputs:
           DEBUG_ZIG_BUILD: ${{ env.get("DEBUG_ZIG_BUILD", default="0") }}
     requirements:
       build:
-        - python 3.12.*
-        - llvm-tools ${{ llvm_version }}.*  # llvm-objdump asserts CPU baseline
+        - if: native_win_arm64_seed
+          then:
+            - python 3.14.*
+          else:
+            - python 3.12.*
+            - llvm-tools ${{ llvm_version }}.*  # llvm-objdump asserts CPU baseline
         - if: is_cross_compiler or is_cross_target
           then:
             - zig_impl_${{ build_platform }}${{ zig_impl_pin }}
@@ -800,7 +832,7 @@ outputs:
           cross_target_platform_: ${{ cross_target_platform_ }}
     requirements:
       build:
-        - python 3.12.*
+        - python ${{ "3.14.*" if native_win_arm64_seed else "3.12.*" }}
       host:
         # Host dep ensures targets exist during build for symlink validation
         - ${{ pin_subpackage("zig_" ~ cross_target_platform_, exact=True) }}
