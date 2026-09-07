@@ -728,6 +728,7 @@ outputs:
               - echo CONDA_ZIG_BUILD=%CONDA_ZIG_BUILD%
               - echo CONDA_ZIG_HOST=%CONDA_ZIG_HOST%
           # Wrapper + functional validation tests (Python, cross-platform)
+          - python testing/test_mingw_import_paths.py
           - if: linux
             then:
               - export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
@@ -766,6 +767,7 @@ outputs:
             - testing/_test_utils.py
             - testing/test-cross-shim.bat
             - testing/test_zig_toolchain.py
+            - testing/test_mingw_import_paths.py
 
       # Verify <triplet>-zig-windres wrapper: -o flag translation works
       - script:

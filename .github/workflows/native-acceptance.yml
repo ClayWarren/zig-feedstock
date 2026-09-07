@@ -55,6 +55,17 @@ jobs:
           Copy-Item ci/native/pixi.lock evidence/pixi.lock
           pixi run --manifest-path ci/native/pixi.toml -e $env:LANE python ci/native/accept.py $env:LANE 2>&1 | Tee-Object evidence/acceptance.log
           exit $LASTEXITCODE
+      - name: Stage built packages alongside evidence
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force evidence/packages | Out-Null
+          foreach ($subdir in @('win-arm64', 'noarch')) {
+            $packageDir = "C:/bld/$subdir"
+            if (Test-Path $packageDir) {
+              Get-ChildItem $packageDir -Filter '*.conda' -File | Copy-Item -Destination evidence/packages
+            }
+          }
       - name: Retain logs, exact solve, and built packages
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -62,7 +73,4 @@ jobs:
           name: native-${{ matrix.lane }}-${{ github.run_id }}
           retention-days: 14
           if-no-files-found: warn
-          path: |
-            evidence/
-            C:/bld/win-arm64/*.conda
-            C:/bld/noarch/*.conda
+          path: evidence/

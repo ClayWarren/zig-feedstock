@@ -855,7 +855,7 @@ def test_print_search_dirs() -> None:
 def test_mingw_prebuilt_import_libs() -> None:
     """Verify pre-generated MinGW import .a files exist for core Windows libs.
 
-    The -print-search-dirs response points flexlink to lib-common/.  These .a
+    The -print-search-dirs response includes the target's MinGW directory. These .a
     files must exist on disk at install time so flexlink can resolve -lws2_32,
     -lkernel32, etc. as library links rather than literal filenames.
 
@@ -870,15 +870,18 @@ def test_mingw_prebuilt_import_libs() -> None:
         SKIP("mingw prebuilt import libs", "Windows target only")
         return
 
+    lib_subdir = {
+        "aarch64": "libarm64", "x86": "lib32", "i386": "lib32", "i686": "lib32",
+    }.get(_arch, "lib-common")
     if _build_is_win:
-        lib_common = _prefix / "Library" / "lib" / "zig" / "libc" / "mingw" / "lib-common"
+        import_lib_dir = _prefix / "Library" / "lib" / "zig" / "libc" / "mingw" / lib_subdir
     else:
-        lib_common = _prefix / "lib" / "zig" / "libc" / "mingw" / "lib-common"
+        import_lib_dir = _prefix / "lib" / "zig" / "libc" / "mingw" / lib_subdir
 
-    if not lib_common.is_dir():
-        FAIL("lib-common directory exists", str(lib_common))
+    if not import_lib_dir.is_dir():
+        FAIL("target MinGW import-lib directory exists", str(import_lib_dir))
         return
-    PASS("lib-common directory exists")
+    PASS("target MinGW import-lib directory exists", str(import_lib_dir))
 
     # Core Windows system libs — from .def.in templates (ws2_32, kernel32, ole32,
     # advapi32, user32) or plain .def (shlwapi, version, synchronization) or
@@ -895,7 +898,7 @@ def test_mingw_prebuilt_import_libs() -> None:
         "libversion.a",      # plain .def — version info
     ]
     for fname in required:
-        lib = lib_common / fname
+        lib = import_lib_dir / fname
         if lib.exists() and lib.stat().st_size > 0:
             PASS(f"pre-generated {fname}")
         else:
