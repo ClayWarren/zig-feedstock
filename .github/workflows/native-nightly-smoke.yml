@@ -1,0 +1,52 @@
+name: Native nightly smoke (fork only)
+on:
+  push:
+    branches: [codex/windows-arm64-nightly-smoke]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.repository == 'ClayWarren/zig-feedstock'
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    env:
+      PIXI_CACHE_DIR: C:\arm64-nightly-cache
+      UPLOAD_PACKAGES: 'False'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify native runner
+        shell: pwsh
+        run: |
+          if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') {
+            throw 'A native Windows ARM64 runner is required'
+          }
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          git rev-parse HEAD | Set-Content evidence/head.txt
+      - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0
+        with:
+          pixi-version: v0.79.0
+          run-install: false
+          cache: false
+          post-cleanup: false
+      - name: Check pinned official development seed
+        shell: pwsh
+        run: |
+          pixi install --manifest-path ci/native/pixi.toml -e zig
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item ci/native/pixi.lock evidence/pixi.lock
+          pixi run --manifest-path ci/native/pixi.toml -e zig python ci/native/nightly_smoke.py
+          exit $LASTEXITCODE
+      - name: Retain smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: nightly-smoke-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: error
+          path: evidence/
