@@ -761,7 +761,7 @@ outputs:
           - script:
               - if: xc_w64 or xc_warm64
                 then:
-                  - python testing/test_wl_entry_translation.py ${{ conda_triplet }}-zig-cc
+                  - python testing/test_wl_entry_translation.py
                 else:
                   - echo "SKIP zig-cc entry point translation test (non-Windows target)"
             files:
