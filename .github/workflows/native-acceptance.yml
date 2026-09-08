@@ -40,6 +40,10 @@ jobs:
           git rev-parse HEAD
           pixi run -e build rattler-build build --recipe recipe -m ".ci_support/$env:CONFIG.yaml" --build-platform win-64 --target-platform $env:HOST_PLATFORM --output-dir C:/bld --test native-and-emulated
           exit $LASTEXITCODE
+      - name: Diagnose custom-entry link failure
+        if: failure() && matrix.config == 'win_64_cross_target_platform_win-arm64'
+        shell: pwsh
+        run: python ci/windows-entry-probe.py
       - name: Retain candidate packages
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
