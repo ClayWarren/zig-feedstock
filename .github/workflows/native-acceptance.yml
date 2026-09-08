@@ -38,7 +38,7 @@ jobs:
           HOST_PLATFORM: ${{ matrix.host }}
         run: |
           git rev-parse HEAD
-          pixi run -e build rattler-build build --recipe recipe -m ".ci_support/$env:CONFIG.yaml" --build-platform win-64 --target-platform $env:HOST_PLATFORM --output-dir C:/bld -c conda-forge/label/zig_dev -c conda-forge --test native-and-emulated
+          pixi run -e build rattler-build build --recipe recipe -m ".ci_support/$env:CONFIG.yaml" --build-platform win-64 --target-platform $env:HOST_PLATFORM --output-dir C:/bld --test native-and-emulated
           exit $LASTEXITCODE
       - name: Retain candidate packages
         if: always()
