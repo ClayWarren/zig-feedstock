@@ -1,13 +1,23 @@
 name: Source-built Windows validation (fork only)
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        default: build
+        options: [build, native]
+        description: Build variants or test retained ARM64 packages natively
+      source_run:
+        type: string
+        default: '34181644084'
+        description: Run containing the source-built ARM64 package artifact
 
 permissions:
   contents: read
 
 jobs:
   build:
-    if: github.repository == 'ClayWarren/zig-feedstock'
+    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode != 'native'
     runs-on: windows-2022
     timeout-minutes: 180
     strategy:
@@ -55,3 +65,47 @@ jobs:
             C:/bld/win-arm64/*.conda
             C:/bld/win-64/*.conda
             C:/bld/noarch/*.conda
+  native:
+    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode == 'native'
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0
+        with:
+          pixi-version: v0.79.0
+          run-install: false
+          cache: false
+          post-cleanup: false
+      - name: Install exact source-built candidate packages
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+        run: |
+          if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') { throw 'ARM64 OS required' }
+          gh run download $env:SOURCE_RUN --repo ClayWarren/zig-feedstock --name "source-win_arm64_cross_target_platform_win-arm64-$env:SOURCE_RUN" --dir C:/candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @(Get-ChildItem C:/candidate -Recurse -Filter *.conda | ForEach-Object FullName)
+          if ($packages.Count -ne 4) { throw "Expected four ARM64 outputs, found $($packages.Count)" }
+          pixi add --manifest-path ci/native-source/pixi.toml --no-install @packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pixi install --manifest-path ci/native-source/pixi.toml
+          exit $LASTEXITCODE
+      - name: Verify native compiler and consumers
+        shell: pwsh
+        run: |
+          pixi run --manifest-path ci/native-source/pixi.toml python ci/native-source/accept.py
+          exit $LASTEXITCODE
+      - name: Retain native acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: source-native-acceptance-${{ github.run_id }}
+          retention-days: 14
+          path: |
+            ci/native-source/pixi.toml
+            ci/native-source/pixi.lock
