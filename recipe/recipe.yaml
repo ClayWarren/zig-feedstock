@@ -607,6 +607,7 @@ outputs:
           CONDA_TRIPLET: ${{ conda_triplet }}
           CROSS_COMPILER: ${{ is_cross_compiler }}
           SHIM_RUNS_ON_TARGET: ${{ shim_runs_on_target }}
+          SHIM_ZIG_TRIPLET: ${{ zig_target_triplet }}
           NATIVE_TRIPLET: ${{ xc_build_triplet }}
           NATIVE_ZIG_TRIPLET: ${{ xc_build_zig_triplet }}
           # Zig toolchain identification (independent of gcc TOOLCHAIN)
