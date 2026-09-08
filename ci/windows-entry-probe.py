@@ -23,12 +23,22 @@ with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp)
     source = root / 'entry.c'
     source.write_text('#include <windows.h>\nvoid MyEntry(void) { ExitProcess(0); }\n')
+    # Zig's -l discovery omits the SDK ucrt directory even though LLD's
+    # emitted -LIBPATH includes it. Use verified absolute files to separate
+    # library discovery from the missing automatic link dependency.
+    sdk_libs = sorted(pathlib.Path('C:/Program Files (x86)/Windows Kits/10/Lib').glob('*/ucrt/arm64/libucrt.lib'))
+    if not sdk_libs:
+        raise SystemExit('No ARM64 SDK static UCRT found')
+    static_ucrt = sdk_libs[-1]
+    print('SDK UCRT:', static_ucrt, flush=True)
     for label, flags in [
         ('baseline', []),
         ('dynamic-crt', ['-fms-runtime-lib=dll']),
         ('explicit-libc', ['-lc']),
         ('explicit-ucrt', ['-lucrt']),
         ('explicit-static-ucrt', ['-llibucrt']),
+        ('absolute-static-ucrt', [str(static_ucrt)]),
+        ('absolute-dynamic-ucrt', [str(static_ucrt.with_name('ucrt.lib'))]),
         ('no-start-files', ['-nostartfiles']),
         ('no-crt', ['-nostdlib', '-lkernel32']),
     ]:
