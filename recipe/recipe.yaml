@@ -412,6 +412,9 @@ outputs:
               then:
                 - zig-lld-bundle
           files:
+            - if: not unix
+              then:
+                - Library/bin/${{ conda_triplet }}-zig.exe
             - if: not skip_langref
               then:
                 - ${{ library }}doc/langref.html
