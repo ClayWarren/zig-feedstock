@@ -46,7 +46,7 @@ for tool in ('cc', 'cxx', 'ar', 'ranlib', 'rc', 'lld', 'asm', 'windres'):
     assert_arm64_pe(bin_dir / ('aarch64-w64-mingw32-zig-' + tool + '.exe'))
 run(str(compiler), 'version')
 run(str(compiler), 'env')
-with tempfile.TemporaryDirectory() as tmp:
+with tempfile.TemporaryDirectory(prefix='zig native acceptance ') as tmp:
     root = pathlib.Path(tmp)
     source = root / 'hello.c'
     source.write_text('#include <stdio.h>\nint main(void) { puts("native ARM64 C OK"); return 0; }\n')
