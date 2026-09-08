@@ -2,6 +2,7 @@
 import pathlib
 import subprocess
 import tempfile
+import sys
 
 wrappers = list(pathlib.Path('C:/bld/test').glob(
     'test_zig_win-arm64*/test_run_env/Library/bin/aarch64-w64-mingw32-zig-cc.exe'
@@ -9,6 +10,13 @@ wrappers = list(pathlib.Path('C:/bld/test').glob(
 if not wrappers:
     raise SystemExit('No retained ARM64-targeting test wrapper found')
 wrapper = wrappers[-1]
+if '--activated' not in sys.argv:
+    test_dir = wrapper.parents[3] / 'test'
+    activation = test_dir / 'build_env.bat'
+    if not activation.is_file():
+        raise SystemExit(f'Missing retained test activation: {activation}')
+    command = f'call "{activation}" && python "{pathlib.Path(__file__).resolve()}" --activated'
+    raise SystemExit(subprocess.call(['cmd.exe', '/d', '/c', command], cwd=test_dir))
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp)
     source = root / 'entry.c'
