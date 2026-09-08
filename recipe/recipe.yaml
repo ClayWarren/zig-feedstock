@@ -339,7 +339,7 @@ outputs:
           DEBUG_ZIG_BUILD: ${{ env.get("DEBUG_ZIG_BUILD", default="0") }}
       python:
         skip_pyc_compilation:
-          - lib/zig/lldb/pretty_printers.py
+          - ${{ library }}lib/zig/lldb/pretty_printers.py
     requirements:
       build:
         # --- Common build deps (all cases) ---
@@ -761,7 +761,7 @@ outputs:
           - script:
               - if: xc_w64 or xc_warm64
                 then:
-                  - python testing/test_wl_entry_translation.py
+                  - python testing/test_wl_entry_translation.py ${{ conda_triplet }}-zig-cc
                 else:
                   - echo "SKIP zig-cc entry point translation test (non-Windows target)"
             files:

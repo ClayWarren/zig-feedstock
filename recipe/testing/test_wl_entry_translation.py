@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import os
+import argparse
 import shutil
 import subprocess
 import sys
@@ -19,27 +19,16 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 def main() -> None:
-    # Discover the mingw zig-cc wrapper from PATH by trying known candidates
-    candidates = [
-        "x86_64-w64-mingw32-zig-cc",
-        "i686-w64-mingw32-zig-cc",
-        "aarch64-w64-mingw32-zig-cc",
-    ]
-    zig_cc_exe = None
-    for candidate in candidates:
-        found = shutil.which(candidate)
-        if found:
-            zig_cc_exe = found
-            break
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("wrapper", help="Exact target zig-cc wrapper to test")
+    args = parser.parse_args()
+    # Cross-compiler packages contain both native and target wrappers. The
+    # recipe must select the target explicitly, independently of PATH order.
+    zig_cc_exe = shutil.which(args.wrapper)
     if zig_cc_exe is None:
-        sys.exit("FAIL: no <arch>-w64-mingw32-zig-cc wrapper found on PATH")
+        sys.exit(f"FAIL: requested wrapper {args.wrapper!r} not found on PATH")
 
-    # The candidate list is ordered and the first hit wins, so a lane carrying
-    # several wrappers silently exercises only one. Name it, and name the rest.
-    on_path = [c for c in candidates if shutil.which(c)]
     print(f"INFO: using wrapper: {zig_cc_exe}")
-    print(f"INFO: wrappers on PATH: {', '.join(on_path)}")
 
     # Minimal Windows C source with custom entry point
     c_source = """#include <windows.h>
