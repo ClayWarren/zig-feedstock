@@ -16,7 +16,9 @@ if '--activated' not in sys.argv:
     if not activation.is_file():
         raise SystemExit(f'Missing retained test activation: {activation}')
     command = f'call "{activation}" && python "{pathlib.Path(__file__).resolve()}" --activated'
-    raise SystemExit(subprocess.call(['cmd.exe', '/d', '/c', command], cwd=test_dir))
+    # Pass cmd's command tail verbatim: list2cmdline escapes embedded quotes
+    # with backslashes, which cmd.exe treats as literal path characters.
+    raise SystemExit(subprocess.call('cmd.exe /d /s /c "' + command + '"', cwd=test_dir))
 with tempfile.TemporaryDirectory() as tmp:
     root = pathlib.Path(tmp)
     source = root / 'entry.c'
@@ -26,6 +28,7 @@ with tempfile.TemporaryDirectory() as tmp:
         ('dynamic-crt', ['-fms-runtime-lib=dll']),
         ('explicit-libc', ['-lc']),
         ('explicit-ucrt', ['-lucrt']),
+        ('explicit-static-ucrt', ['-llibucrt']),
         ('no-start-files', ['-nostartfiles']),
         ('no-crt', ['-nostdlib', '-lkernel32']),
     ]:
