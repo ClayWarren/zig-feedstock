@@ -5,7 +5,7 @@ on:
       mode:
         type: choice
         default: build
-        options: [build, native]
+        options: [build, arm, native]
         description: Build variants or test retained ARM64 packages natively
       source_run:
         type: string
@@ -23,13 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - config: win_64_cross_target_platform_win-arm64
-            host: win-64
-          - config: win_arm64_cross_target_platform_win-arm64
-            host: win-arm64
-          - config: win_64_cross_target_platform_win-64
-            host: win-64
+        include: ${{ inputs.mode == 'arm' && fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"},{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"}]') || fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"},{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"},{"config":"win_64_cross_target_platform_win-64","host":"win-64"}]') }}
     env:
       UPLOAD_PACKAGES: 'False'
       PYTHONUNBUFFERED: '1'
@@ -48,6 +42,8 @@ jobs:
           HOST_PLATFORM: ${{ matrix.host }}
         run: |
           git rev-parse HEAD
+          python recipe/testing/test_windows_shim_target.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pixi run -e build rattler-build build --recipe recipe -m ".ci_support/$env:CONFIG.yaml" --build-platform win-64 --target-platform $env:HOST_PLATFORM --output-dir C:/bld --test native-and-emulated
           exit $LASTEXITCODE
       - name: Diagnose custom-entry link failure

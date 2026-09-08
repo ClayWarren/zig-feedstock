@@ -42,7 +42,8 @@ bin_dir = prefix / 'Library' / 'bin'
 compiler = bin_dir / 'aarch64-w64-mingw32-zig.exe'
 wrapper = bin_dir / 'aarch64-w64-mingw32-zig-cc.exe'
 assert_arm64_pe(compiler)
-assert_arm64_pe(wrapper)
+for tool in ('cc', 'cxx', 'ar', 'ranlib', 'rc', 'lld', 'asm', 'windres'):
+    assert_arm64_pe(bin_dir / ('aarch64-w64-mingw32-zig-' + tool + '.exe'))
 run(str(compiler), 'version')
 run(str(compiler), 'env')
 with tempfile.TemporaryDirectory() as tmp:
