@@ -11,6 +11,10 @@ on:
         type: string
         default: '34181644084'
         description: Run containing the source-built ARM64 package artifact
+      seed_run:
+        type: string
+        default: ''
+        description: Optional retained x64 compiler run for cross-only acceptance
 
 permissions:
   contents: read
@@ -20,6 +24,9 @@ jobs:
     if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode != 'native'
     runs-on: windows-2022
     timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -35,16 +42,35 @@ jobs:
           run-install: false
           cache: false
           post-cleanup: false
+      - name: Select exact local x64 compiler for cross acceptance
+        if: inputs.seed_run != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEED_RUN: ${{ inputs.seed_run }}
+          VALIDATION_MODE: ${{ inputs.mode }}
+        run: |
+          if ($env:VALIDATION_MODE -ne 'cross') { throw 'seed_run requires cross mode' }
+          gh run download $env:SEED_RUN --repo ClayWarren/zig-feedstock --name "source-win_64_cross_target_platform_win-64-$env:SEED_RUN" --dir C:/seed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pixi exec rattler-index fs C:/seed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python ci/select-local-seed.py
+          exit $LASTEXITCODE
       - name: Build and test recipe without publishing
         shell: pwsh
         env:
           CONFIG: ${{ matrix.config }}
           HOST_PLATFORM: ${{ matrix.host }}
+          SEED_RUN: ${{ inputs.seed_run }}
         run: |
           git rev-parse HEAD
           python recipe/testing/test_windows_shim_target.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pixi run -e build rattler-build build --recipe recipe -m ".ci_support/$env:CONFIG.yaml" --build-platform win-64 --target-platform $env:HOST_PLATFORM --output-dir C:/bld --test native-and-emulated
+          $recipe = 'recipe'
+          $variant = ".ci_support/$env:CONFIG.yaml"
+          if ($env:SEED_RUN) { $recipe = 'C:/selected-recipe'; $variant = 'C:/selected-variant.yaml' }
+          pixi run -e build rattler-build build --recipe $recipe -m $variant --build-platform win-64 --target-platform $env:HOST_PLATFORM --output-dir C:/bld --test native-and-emulated
           exit $LASTEXITCODE
       - name: Diagnose custom-entry link failure
         if: failure() && matrix.config == 'win_64_cross_target_platform_win-arm64'
