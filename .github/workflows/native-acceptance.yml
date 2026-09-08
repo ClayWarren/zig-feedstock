@@ -1,0 +1,53 @@
+name: Source-built Windows validation (fork only)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'ClayWarren/zig-feedstock'
+    runs-on: windows-2022
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: win_64_cross_target_platform_win-arm64
+            host: win-64
+          - config: win_arm64_cross_target_platform_win-arm64
+            host: win-arm64
+          - config: win_64_cross_target_platform_win-64
+            host: win-64
+    env:
+      UPLOAD_PACKAGES: 'False'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0
+        with:
+          pixi-version: v0.79.0
+          run-install: false
+          cache: false
+          post-cleanup: false
+      - name: Build and test recipe without publishing
+        shell: pwsh
+        env:
+          CONFIG: ${{ matrix.config }}
+          HOST_PLATFORM: ${{ matrix.host }}
+        run: |
+          git rev-parse HEAD
+          pixi run -e build rattler-build build --recipe recipe -m ".ci_support/$env:CONFIG.yaml" --build-platform win-64 --target-platform $env:HOST_PLATFORM --output-dir C:/bld -c conda-forge/label/zig_dev -c conda-forge --test native-and-emulated
+          exit $LASTEXITCODE
+      - name: Retain candidate packages
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: source-${{ matrix.config }}-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            C:/bld/win-arm64/*.conda
+            C:/bld/win-64/*.conda
+            C:/bld/noarch/*.conda
