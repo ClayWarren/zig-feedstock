@@ -1,0 +1,7 @@
+[workspace]
+name = "source-zig-native-cross-acceptance"
+channels = ["conda-forge/label/zig_dev", "conda-forge"]
+platforms = ["win-arm64"]
+
+[dependencies]
+python = "3.14.*"
