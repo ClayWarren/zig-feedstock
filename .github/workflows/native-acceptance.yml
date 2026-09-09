@@ -5,7 +5,7 @@ on:
       mode:
         type: choice
         default: build
-        options: [build, source, arm, cross, remaining, native, native-cross]
+        options: [build, source, arm, cross, remaining, native, native-cross, warnings]
         description: Build variants or test retained ARM64 packages natively
       source_run:
         type: string
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   build:
-    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode != 'native' && inputs.mode != 'native-cross'
+    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode != 'native' && inputs.mode != 'native-cross' && inputs.mode != 'warnings'
     runs-on: windows-2022
     timeout-minutes: 180
     permissions:
@@ -187,3 +187,57 @@ jobs:
           path: |
             ci/native-cross/pixi.toml
             ci/native-cross/pixi.lock
+  warnings:
+    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode == 'warnings'
+    runs-on: windows-2022
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [win-64, win-32]
+    env:
+      WARNING_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0
+        with:
+          pixi-version: v0.79.0
+          run-install: false
+          cache: false
+          post-cleanup: false
+      - name: Install exact retained packages
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:WARNING_TARGET -eq 'win-64') {
+            gh run download 34311853114 --repo ClayWarren/zig-feedstock --name source-win_64_cross_target_platform_win-64-34311853114 --dir C:/warning-candidates
+          } else {
+            gh run download 34314598309 --repo ClayWarren/zig-feedstock --name source-win_64_cross_target_platform_win-32-34314598309 --dir C:/warning-candidates
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @(Get-ChildItem C:/warning-candidates -Recurse -Filter *.conda | ForEach-Object FullName)
+          $expected = if ($env:WARNING_TARGET -eq 'win-64') { 4 } else { 1 }
+          if ($packages.Count -ne $expected) { throw 'Unexpected package count' }
+          pixi add --manifest-path ci/warning-check/pixi.toml --no-install @packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pixi install --manifest-path ci/warning-check/pixi.toml
+          exit $LASTEXITCODE
+      - name: Reproduce exact test warnings and compare GNU target
+        shell: pwsh
+        run: |
+          pixi run --manifest-path ci/warning-check/pixi.toml python ci/warning-check/check.py
+          exit $LASTEXITCODE
+      - name: Retain diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: warning-check-${{ matrix.target }}-${{ github.run_id }}
+          retention-days: 14
+          path: |
+            C:/warning-evidence
+            ci/warning-check/pixi.toml
+            ci/warning-check/pixi.lock
