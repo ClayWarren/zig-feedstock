@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix='zig native acceptance ') as tmp:
     msvc_source.write_text('#include <windows.h>\nvoid MyEntry(void) { ExitProcess(0); }\n')
     msvc_output = root / 'msvc-entry.exe'
     run(str(compiler), 'cc', '-target', 'aarch64-windows-msvc', '-fuse-ld=lld',
-        '-Wl,/ENTRY:MyEntry', '-Wl,/SUBSYSTEM:CONSOLE', '-lkernel32',
+        '-Wl,--entry,MyEntry', '-Wl,--subsystem,console', '-lkernel32',
         str(msvc_source), '-o', str(msvc_output))
     assert_arm64_pe(msvc_output)
     run(str(msvc_output))
