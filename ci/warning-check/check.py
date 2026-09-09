@@ -1,5 +1,4 @@
 """Bounded reproductions of the retained Windows package test warnings."""
-import ctypes
 import hashlib
 import json
 import os
@@ -51,8 +50,37 @@ def inspect(path, expected):
     pe = pefile.PE(str(path))
     assert pe.FILE_HEADER.Machine == expected, path
     imports = [entry.dll.decode() for entry in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])]
+    pe.close()
     print('PE:', path, hex(expected), 'IMPORTS:', imports, flush=True)
     return imports
+
+# Execute the actual modified recipe tests, starting with a fresh C++ cache.
+sys.path.insert(0, str(Path('recipe/testing').resolve()))
+os.environ['PREFIX'] = str(prefix)
+os.environ['CONDA_ZIG_HOST'] = triplet + '-zig'
+os.environ['CONDA_ZIG_BUILD'] = 'x86_64-w64-mingw32-zig'
+os.environ['ZIG_CC'] = str(wrapper)
+cache = Path.cwd() / '.zig-warning-cache'
+assert not cache.exists(), cache
+os.environ['ZIG_GLOBAL_CACHE_DIR'] = str(cache)
+import _test_utils
+if target == 'win-64':
+    sys.argv = ['test_libcxx_shared.py', triplet]
+    import test_libcxx_shared
+    start = time.monotonic()
+    test_libcxx_shared.test_libcxx_fallback_static()
+    elapsed = time.monotonic() - start
+    test_libcxx_shared.test_libcxx_probe_paths()
+    assert 'C++ shared lib compiled' in _test_utils._results['PASS'], _test_utils._results
+    assert not _test_utils._results['FAIL'] and not _test_utils._results['WARN'], _test_utils._results
+    print('PASS: actual recipe libc++ tests on fresh cache; seconds:', elapsed, flush=True)
+    results.append({'label': 'recipe-libcxx-cold', 'returncode': 0, 'seconds': elapsed})
+    for values in _test_utils._results.values(): values.clear()
+import test_zig_toolchain
+test_zig_toolchain.test_windows_import_libs()
+assert len(_test_utils._results['PASS']) == 2, _test_utils._results
+assert not _test_utils._results['FAIL'] and not _test_utils._results['WARN'], _test_utils._results
+print('PASS: actual recipe import-library tests', _test_utils._results, flush=True)
 
 source = root/'sync.c';source.write_text('int main(void) { return 0; }\n')
 for mode, extra in [('default', []), ('explicit-gnu', ['-target', zig_target])]:
@@ -65,10 +93,10 @@ for mode, extra in [('default', []), ('explicit-gnu', ['-target', zig_target])]:
 if target == 'win-64':
     source = root/'cxxlib.cpp'
     source.write_text('#include <string>\n#include <typeinfo>\nextern "C" {\n  __attribute__((visibility("default")))\n  const char* cxx_rtti(void) { return typeid(std::string).name(); }\n}\n')
-    output = root/'cxxtest.dll'
     for shared in (prefix/'Library/lib/libc++.dll.a', prefix/'Library/lib/zig-llvm/lib/libc++.dll.a'):
         assert not shared.exists(), shared
-    for label in ('libcxx-cold', 'libcxx-warm'):
+    for label in ('libcxx-artifact', 'libcxx-repeat'):
+        output = root/(label+'.dll')
         rc=run(label,[compiler,'c++','-shared','-o',output,source])
         if rc == 0:
             imports=inspect(output,0x8664)
@@ -82,6 +110,6 @@ if target == 'win-64':
         run('libcxx-consumer-run',[executable],30)
 (root/'results.json').write_text(json.dumps(results,indent=2))
 required = ['api-set-explicit-gnu', 'execute-explicit-gnu']
-if target == 'win-64': required += ['libcxx-cold','libcxx-warm','libcxx-consumer-build','libcxx-consumer-run']
+if target == 'win-64': required += ['recipe-libcxx-cold','libcxx-artifact','libcxx-repeat','libcxx-consumer-build','libcxx-consumer-run']
 assert all(any(r['label']==name and r['returncode']==0 for r in results) for name in required), results
 print('PASS: focused warning diagnostics; original default API-set result retained separately',flush=True)
