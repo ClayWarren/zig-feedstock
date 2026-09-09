@@ -33,7 +33,7 @@ for path in (prefix / 'conda-meta').glob('*.json'):
     record = json.loads(path.read_text())
     if record['name'] in expected:
         assert record['subdir'] == 'win-arm64', record
-        assert '2033_af24fd11a_1' in record['build'], record
+        assert '2056_79a9897cd_1' in record['build'], record
         assert record['build_number'] == 1, record
         assert record.get('url', '').startswith('file:'), record
         print('CANDIDATE:', record['name'], record['build'], record['url'], flush=True)

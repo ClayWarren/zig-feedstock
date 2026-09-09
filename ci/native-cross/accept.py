@@ -41,12 +41,12 @@ for path in (prefix / 'conda-meta').glob('*.json'):
         continue
     assert record['name'] in expected, record
     assert record['subdir'] == 'win-arm64' and record['build_number'] == 1, record
-    assert '2033_af24fd11a_1' in record['build'], record
+    assert '2056_79a9897cd_1' in record['build'], record
     assert record.get('url', '').startswith('file:'), record
     local = Path(url2pathname(urlparse(record['url']).path))
     print('CANDIDATE:', record['name'], record['build'], hashlib.sha256(local.read_bytes()).hexdigest(), flush=True)
     if record['name'] == 'zig_' + target:
-        assert 'zig_impl_win-arm64 ==0.17.0 *_2033_af24fd11a_1' in record['depends'], record
+        assert 'zig_impl_win-arm64 ==0.17.0 *_2056_79a9897cd_1' in record['depends'], record
     seen.add(record['name'])
 assert seen == expected, seen
 bin_dir = prefix / 'Library' / 'bin'
