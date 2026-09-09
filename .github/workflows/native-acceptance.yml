@@ -238,6 +238,6 @@ jobs:
           name: warning-check-${{ matrix.target }}-${{ github.run_id }}
           retention-days: 14
           path: |
-            C:/warning-evidence
+            warning-evidence
             ci/warning-check/pixi.toml
             ci/warning-check/pixi.lock

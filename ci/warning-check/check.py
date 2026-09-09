@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from urllib.request import url2pathname
 import pefile
 
-root = Path('C:/warning-evidence')
+root = Path.cwd() / 'warning-evidence'
 root.mkdir(exist_ok=True)
 target = os.environ['WARNING_TARGET']
 triplet, machine, zig_target = {'win-64': ('x86_64-w64-mingw32', 0x8664, 'x86_64-windows-gnu'),
