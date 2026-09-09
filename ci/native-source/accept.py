@@ -48,6 +48,7 @@ for tool in ('cc', 'cxx', 'ar', 'ranlib', 'rc', 'lld', 'asm', 'windres'):
 run(str(compiler), 'version')
 run(str(compiler), 'env')
 run(sys.executable, 'recipe/testing/test_windows_spawn.py', '--zig', str(compiler))
+run(sys.executable, 'ci/native-source/spawn-roundtrip.py', str(compiler))
 with tempfile.TemporaryDirectory(prefix='zig native acceptance ') as tmp:
     root = pathlib.Path(tmp)
     source = root / 'hello.c'
