@@ -5,7 +5,7 @@ on:
       mode:
         type: choice
         default: build
-        options: [build, source, arm, cross, native]
+        options: [build, source, arm, cross, remaining, native]
         description: Build variants or test retained ARM64 packages natively
       source_run:
         type: string
@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ inputs.mode == 'source' && fromJSON('[{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"},{"config":"win_64_cross_target_platform_win-64","host":"win-64"}]') || inputs.mode == 'cross' && fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"}]') || inputs.mode == 'arm' && fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"},{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"}]') || fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"},{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"},{"config":"win_64_cross_target_platform_win-64","host":"win-64"}]') }}
+        include: ${{ inputs.mode == 'remaining' && fromJSON('[{"config":"win_arm64_cross_target_platform_win-64","host":"win-arm64"},{"config":"win_arm64_cross_target_platform_win-32","host":"win-arm64"},{"config":"win_64_cross_target_platform_win-32","host":"win-64"}]') || inputs.mode == 'source' && fromJSON('[{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"},{"config":"win_64_cross_target_platform_win-64","host":"win-64"}]') || inputs.mode == 'cross' && fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"}]') || inputs.mode == 'arm' && fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"},{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"}]') || fromJSON('[{"config":"win_64_cross_target_platform_win-arm64","host":"win-64"},{"config":"win_arm64_cross_target_platform_win-arm64","host":"win-arm64"},{"config":"win_64_cross_target_platform_win-64","host":"win-64"}]') }}
     env:
       UPLOAD_PACKAGES: 'False'
       PYTHONUNBUFFERED: '1'
