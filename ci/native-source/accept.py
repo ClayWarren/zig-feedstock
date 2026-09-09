@@ -58,6 +58,15 @@ with tempfile.TemporaryDirectory(prefix='zig native acceptance ') as tmp:
         run(*command, str(source), '-o', str(output))
         assert_arm64_pe(output)
         run(str(output))
+    msvc_source = root / 'msvc-entry.c'
+    msvc_source.write_text('#include <windows.h>\nvoid MyEntry(void) { ExitProcess(0); }\n')
+    msvc_output = root / 'msvc-entry.exe'
+    run(str(compiler), 'cc', '-target', 'aarch64-windows-msvc', '-fuse-ld=lld',
+        '-Wl,/ENTRY:MyEntry', '-Wl,/SUBSYSTEM:CONSOLE', '-lkernel32',
+        str(msvc_source), '-o', str(msvc_output))
+    assert_arm64_pe(msvc_output)
+    run(str(msvc_output))
+    print('PASS: ARM64 MSVC custom-entry link and native execution', flush=True)
     zig_source = root / 'main.zig'
     zig_source.write_text('pub fn main() void {}\n')
     zig_output = root / 'zig-consumer.exe'

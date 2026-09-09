@@ -2,6 +2,7 @@ name: Focused Windows cross import-library check
 on:
   push:
     branches: [codex/windows-arm64-upstream-validation]
+    paths: [ci/cross-runtime/**]
   workflow_dispatch:
 permissions:
   contents: read
