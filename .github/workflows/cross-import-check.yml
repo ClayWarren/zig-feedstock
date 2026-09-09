@@ -1,0 +1,48 @@
+name: Focused Windows cross import-library check
+on:
+  push:
+    branches: [codex/windows-arm64-upstream-validation]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  check:
+    if: github.repository == 'ClayWarren/zig-feedstock'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0
+        with:
+          pixi-version: v0.79.0
+          run-install: false
+          cache: false
+          post-cleanup: false
+      - name: Install exact retained cross-compiler package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 34311853114 --repo ClayWarren/zig-feedstock --name source-win_64_cross_target_platform_win-arm64-34311853114 --dir C:/cross-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @(Get-ChildItem C:/cross-candidate -Recurse -Filter *.conda)
+          if ($packages.Count -ne 1) { throw 'Expected one cross-compiler package' }
+          $sha = (Get-FileHash $packages[0].FullName -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne 'b6c4bd6051298ca1789c065fdc7285fda623fb72abd8ede0a51f69bfcd5c1755') { throw "Unexpected package SHA256: $sha" }
+          pixi add --manifest-path ci/cross-runtime/pixi.toml --no-install $packages[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pixi install --manifest-path ci/cross-runtime/pixi.toml
+          exit $LASTEXITCODE
+      - name: Verify the two import-library links with a five-minute bound each
+        shell: pwsh
+        run: |
+          pixi run --manifest-path ci/cross-runtime/pixi.toml python ci/cross-runtime/check.py
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: cross-import-library-environment
+          path: |
+            ci/cross-runtime/pixi.toml
+            ci/cross-runtime/pixi.lock
