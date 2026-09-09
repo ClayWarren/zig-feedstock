@@ -5,12 +5,16 @@ on:
       mode:
         type: choice
         default: build
-        options: [build, source, arm, cross, remaining, native]
+        options: [build, source, arm, cross, remaining, native, native-cross]
         description: Build variants or test retained ARM64 packages natively
       source_run:
         type: string
         default: ''
         description: Run containing the source-built ARM64 package artifact
+      remaining_run:
+        type: string
+        default: ''
+        description: Run containing ARM64-hosted cross package artifacts
       seed_run:
         type: string
         default: ''
@@ -21,7 +25,7 @@ permissions:
 
 jobs:
   build:
-    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode != 'native'
+    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode != 'native' && inputs.mode != 'native-cross'
     runs-on: windows-2022
     timeout-minutes: 180
     permissions:
@@ -127,3 +131,59 @@ jobs:
           path: |
             ci/native-source/pixi.toml
             ci/native-source/pixi.lock
+  native-cross:
+    if: github.repository == 'ClayWarren/zig-feedstock' && inputs.mode == 'native-cross'
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [win-64, win-32]
+    env:
+      CROSS_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: prefix-dev/setup-pixi@1b2de7f3351f171c8b4dfeb558c639cb58ed4ec0
+        with:
+          pixi-version: v0.79.0
+          run-install: false
+          cache: false
+          post-cleanup: false
+      - name: Install exact implementation and cross package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+          REMAINING_RUN: ${{ inputs.remaining_run }}
+        run: |
+          if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') { throw 'ARM64 OS required' }
+          gh run download $env:SOURCE_RUN --repo ClayWarren/zig-feedstock --name "source-win_arm64_cross_target_platform_win-arm64-$env:SOURCE_RUN" --dir C:/native-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh run download $env:REMAINING_RUN --repo ClayWarren/zig-feedstock --name "source-win_arm64_cross_target_platform_$env:CROSS_TARGET-$env:REMAINING_RUN" --dir C:/cross-candidate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $implementation = @(Get-ChildItem C:/native-candidate -Recurse -Filter 'zig_impl_win-arm64-*.conda')
+          $cross = @(Get-ChildItem C:/cross-candidate -Recurse -Filter "zig_$env:CROSS_TARGET-*.conda")
+          if ($implementation.Count -ne 1 -or $cross.Count -ne 1) { throw 'Expected one implementation and one cross package' }
+          $packages = @($implementation[0].FullName, $cross[0].FullName)
+          Get-FileHash -Path $packages -Algorithm SHA256
+          pixi add --manifest-path ci/native-cross/pixi.toml --no-install @packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pixi install --manifest-path ci/native-cross/pixi.toml
+          exit $LASTEXITCODE
+      - name: Execute native ARM64 wrappers for foreign targets
+        shell: pwsh
+        run: |
+          pixi run --manifest-path ci/native-cross/pixi.toml python ci/native-cross/accept.py
+          exit $LASTEXITCODE
+      - name: Retain solve and install evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-cross-${{ matrix.target }}-${{ github.run_id }}
+          retention-days: 14
+          path: |
+            ci/native-cross/pixi.toml
+            ci/native-cross/pixi.lock
